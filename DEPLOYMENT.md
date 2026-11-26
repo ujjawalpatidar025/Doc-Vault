@@ -97,7 +97,7 @@ Railway can host both Django backend and React frontend.
    - Root Directory: `frontend`
    - Build Command: `npm run build`
    - Output Directory: `build`
-   - Environment Variable: `REACT_APP_API_URL=https://your-backend.onrender.com/api`
+   - Environment Variable: `REACT_APP_API_URL=https://<your-backend>.onrender.com/api`
 
 3. **Automatic deployments** on every push
 
@@ -227,7 +227,7 @@ psycopg2-binary==2.9.9  # For PostgreSQL
 5. Add environment variables:
    - `DJANGO_SECRET_KEY`: Generate with Python
    - `DEBUG`: `False`
-   - `ALLOWED_HOSTS`: `filevault-backend.onrender.com`
+   - `ALLOWED_HOSTS`: `<your-backend>.onrender.com`
 6. Deploy
 
 ### Frontend:
@@ -244,7 +244,7 @@ psycopg2-binary==2.9.9  # For PostgreSQL
    - **Build Command**: `npm install && npm run build`
    - **Publish Directory**: `build`
 5. Add environment variable:
-   - `REACT_APP_API_URL`: `https://filevault-backend.onrender.com/api`
+   - `REACT_APP_API_URL`: `https://<your-backend>.onrender.com/api`
 6. Deploy
 
 ---

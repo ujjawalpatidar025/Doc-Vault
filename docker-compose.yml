@@ -13,6 +13,10 @@ services:
       - media_files:/app/media
     environment:
       - DJANGO_SETTINGS_MODULE=filevault.settings
+      # Per-user limits (defaults: 2 calls/second, 10 MB of storage)
+      - RATE_LIMIT_CALLS=2
+      - RATE_LIMIT_WINDOW_SECONDS=1
+      - USER_STORAGE_LIMIT_BYTES=10485760
     command: >
       sh -c "python manage.py migrate &&
              python manage.py collectstatic --noinput &&
@@ -32,6 +36,7 @@ services:
       - /app/node_modules
     environment:
       - REACT_APP_API_URL=http://localhost:8000/api
+      - CHOKIDAR_USEPOLLING=true
     depends_on:
       - backend
     networks:

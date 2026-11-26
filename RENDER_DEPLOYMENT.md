@@ -83,7 +83,7 @@ Click **"Advanced"** → **"Add Environment Variable"** and add:
 |-----|-------|
 | `DJANGO_SECRET_KEY` | (paste the secret key you generated) |
 | `DEBUG` | `False` |
-| `ALLOWED_HOSTS` | `filevault-backend.onrender.com` (you'll update this later) |
+| `ALLOWED_HOSTS` | `<your-backend>.onrender.com` (you'll update this later) |
 | `DATABASE_URL` | (Leave empty for now - we'll add PostgreSQL) |
 | `FRONTEND_URL` | (Leave empty for now - we'll update after deploying frontend) |
 
@@ -107,7 +107,7 @@ Click **"Advanced"** → **"Add Environment Variable"** and add:
 ### 2.6 Deploy Backend
 Click **"Create Web Service"** and wait for deployment (~2-3 minutes)
 
-**Note your backend URL**: `https://file-vault-abnormal-ai.onrender.com` (or your actual Render URL)
+**Note your backend URL**: `https://<your-backend>.onrender.com` (or your actual Render URL)
 
 ---
 
@@ -141,32 +141,32 @@ Click **"Advanced"** → **"Add Environment Variable"**:
 
 | Key | Value |
 |-----|-------|
-| `REACT_APP_API_URL` | `https://file-vault-abnormal-ai.onrender.com/api` |
+| `REACT_APP_API_URL` | `https://<your-backend>.onrender.com/api` |
 
 **Important**: Use your actual backend URL from Step 2.6!
 
 ### 3.4 Update Backend CORS Settings
 1. Go back to your **backend service**
 2. Click **"Environment"** tab
-3. Update `FRONTEND_URL` to: `https://filevault-frontend.onrender.com`
-4. Update `ALLOWED_HOSTS` to: `filevault-backend.onrender.com,filevault-frontend.onrender.com`
+3. Update `FRONTEND_URL` to: `https://<your-frontend>.onrender.com`
+4. Update `ALLOWED_HOSTS` to: `<your-backend>.onrender.com,<your-frontend>.onrender.com`
 5. Click **"Save Changes"** - this will trigger a redeploy
 
 ### 3.5 Deploy Frontend
 Click **"Create Web Service"** and wait for deployment (~3-4 minutes)
 
-**Note your frontend URL**: `https://filevault-frontend.onrender.com`
+**Note your frontend URL**: `https://<your-frontend>.onrender.com`
 
 ---
 
 ## Step 4: Verify Deployment
 
 ### 4.1 Test Backend
-Open in browser: `https://filevault-backend.onrender.com/api/files/`
+Open in browser: `https://<your-backend>.onrender.com/api/files/`
 - Should show: `[]` (empty list) or file list
 
 ### 4.2 Test Frontend
-Open in browser: `https://filevault-frontend.onrender.com`
+Open in browser: `https://<your-frontend>.onrender.com`
 - Should show the File Vault UI
 
 ### 4.3 Test Full Flow
@@ -183,14 +183,14 @@ Open in browser: `https://filevault-frontend.onrender.com`
 ```
 DJANGO_SECRET_KEY=<your-secret-key>
 DEBUG=False
-ALLOWED_HOSTS=filevault-backend.onrender.com,filevault-frontend.onrender.com
+ALLOWED_HOSTS=<your-backend>.onrender.com,<your-frontend>.onrender.com
 DATABASE_URL=<from-postgresql-service>
-FRONTEND_URL=https://filevault-frontend.onrender.com
+FRONTEND_URL=https://<your-frontend>.onrender.com
 ```
 
 ### Frontend Service:
 ```
-REACT_APP_API_URL=https://filevault-backend.onrender.com/api
+REACT_APP_API_URL=https://<your-backend>.onrender.com/api
 ```
 
 ---
@@ -294,8 +294,8 @@ After deployment, verify:
 ## 🎉 You're Done!
 
 Your complete application is now live on Render:
-- **Backend**: `https://filevault-backend.onrender.com`
-- **Frontend**: `https://filevault-frontend.onrender.com`
+- **Backend**: `https://<your-backend>.onrender.com`
+- **Frontend**: `https://<your-frontend>.onrender.com`
 - **Database**: Managed PostgreSQL (free for 90 days)
 
 Share your frontend URL with anyone to demo the application!

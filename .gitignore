@@ -57,3 +57,10 @@ Thumbs.db
 # Docker
 *.zip
 
+
+# Uploaded files and local DB (never commit user uploads)
+backend/media/
+backend/db.sqlite3
+frontend/build/
+# Keep the frontend helpers (the Python "lib/" rule above would ignore them)
+!frontend/src/lib/

@@ -23,20 +23,24 @@
 
 1. Upload a file (e.g., a PDF or image)
 2. Upload the **same file again** (even with a different name)
-3. Notice in the file list:
-   - The upload count shows 2
-   - The file is highlighted as a duplicate
-   - Statistics show space saved
+3. Notice:
+   - A toast says a duplicate was detected
+   - The new row has a **Duplicate** badge and the original shows **2 copies**
+   - "Space saved" in the statistics goes up, while "Storage used" doesn't
 
 ### Testing Search & Filtering
 
 1. Upload several files of different types
 2. Use the search bar to find files by name
 3. Try filtering by:
-   - File size (min/max bytes)
+   - File size (min/max KB)
    - MIME type (e.g., "image", "pdf")
    - Date range
-   - Check "Show duplicates only" to see only duplicated files
+   - Check "Only show duplicated content" to see only duplicated files
+
+### Switching users
+
+Each user only sees their own files. Type another ID in the **User ID** box in the header and click **Switch user**.
 
 ## Troubleshooting
 

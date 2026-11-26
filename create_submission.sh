@@ -6,8 +6,10 @@
 # Get current date in YYYYMMDD format
 DATE=$(date +%Y%m%d)
 
-# Get username (you can change this)
-USERNAME="${USER:-venkatasaipalla}"
+# Name used in the ZIP filename: set SUBMISSION_NAME, or it falls back to your login name.
+# Spaces are removed so the file is named like username_YYYYMMDD.zip
+USERNAME="${SUBMISSION_NAME:-${USER:-${USERNAME:-$(whoami)}}}"
+USERNAME="${USERNAME// /}"
 
 # Create ZIP filename
 ZIP_NAME="${USERNAME}_${DATE}.zip"

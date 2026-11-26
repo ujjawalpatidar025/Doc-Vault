@@ -1,126 +1,98 @@
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.parsers import MultiPartParser, FormParser
-from django.shortcuts import get_object_or_404
+from django.core.files.storage import default_storage
 from django.http import FileResponse
-from django.db.models import Q
-import os
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.response import Response
 
+from . import services
+from .filters import apply_filters
 from .models import FileMetadata
 from .serializers import FileMetadataSerializer
-from .utils import save_file_with_deduplication
 
 
-class FileMetadataViewSet(viewsets.ModelViewSet):
+class FileMetadataViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     """
-    ViewSet for handling file operations with deduplication.
-    
-    Supports:
-    - File upload with automatic deduplication
-    - Search and filtering
-    - File download
+    Files of the caller identified by the `UserId` header. Each user only ever
+    sees their own files; other users' IDs return 404.
+
+    - Upload with per-user deduplication
+    - Validated search & filtering (see files/filters.py)
+    - Download, delete, storage statistics
+    - Every call is rate limited per user; uploads are subject to a storage quota
     """
-    queryset = FileMetadata.objects.all()
+
     serializer_class = FileMetadataSerializer
-    parser_classes = (MultiPartParser, FormParser)
-    
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+    lookup_value_regex = r'\d+'  # non-numeric IDs 404 instead of erroring
+
     def get_queryset(self):
-        """Override to support search and filtering"""
-        queryset = FileMetadata.objects.all()
-        
-        # Search by name
-        search = self.request.query_params.get('search', None)
-        if search:
-            queryset = queryset.filter(name__icontains=search)
-        
-        # Filter by file size range
-        min_size = self.request.query_params.get('min_size', None)
-        max_size = self.request.query_params.get('max_size', None)
-        if min_size:
-            queryset = queryset.filter(file_size__gte=int(min_size))
-        if max_size:
-            queryset = queryset.filter(file_size__lte=int(max_size))
-        
-        # Filter by MIME type
-        mime_type = self.request.query_params.get('mime_type', None)
-        if mime_type:
-            queryset = queryset.filter(mime_type__icontains=mime_type)
-        
-        # Filter by date range
-        date_from = self.request.query_params.get('date_from', None)
-        date_to = self.request.query_params.get('date_to', None)
-        if date_from:
-            queryset = queryset.filter(uploaded_at__gte=date_from)
-        if date_to:
-            queryset = queryset.filter(uploaded_at__lte=date_to)
-        
-        # Filter by upload count (duplicate files)
-        duplicates_only = self.request.query_params.get('duplicates_only', None)
-        if duplicates_only and duplicates_only.lower() == 'true':
-            queryset = queryset.filter(upload_count__gt=1)
-        
+        return (
+            FileMetadata.objects.filter(user_id=self.request.user.user_id)
+            .select_related('original_file')  # serializer reads it for references: avoid N+1
+        )
+
+    def filter_queryset(self, queryset):
+        if self.action == 'list':
+            return apply_filters(queryset, self.request.query_params)
         return queryset
-    
+
     def create(self, request, *args, **kwargs):
-        """Handle file upload with deduplication"""
-        if 'file' not in request.FILES:
-            return Response(
-                {'error': 'No file provided'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        uploaded_file = request.FILES['file']
-        
-        # Save file with deduplication logic
-        file_metadata, is_duplicate = save_file_with_deduplication(uploaded_file)
-        
-        serializer = self.get_serializer(file_metadata)
-        response_status = status.HTTP_201_CREATED if not is_duplicate else status.HTTP_200_OK
-        
-        return Response({
-            **serializer.data,
-            'is_duplicate': is_duplicate,
-            'message': 'File uploaded successfully' if not is_duplicate else 'Duplicate file detected, referencing existing file'
-        }, status=response_status)
-    
+        uploaded_file = request.FILES.get('file')
+        if not uploaded_file:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_metadata, is_duplicate = services.save_file_with_deduplication(
+            uploaded_file, user_id=request.user.user_id
+        )
+        data = self.get_serializer(file_metadata).data
+        return Response(
+            {
+                **data,
+                'is_duplicate': is_duplicate,
+                'message': (
+                    'Duplicate file detected, referencing existing file'
+                    if is_duplicate else 'File uploaded successfully'
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def perform_destroy(self, instance):
+        services.delete_file(instance)
+
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None):
-        """Download a file by ID"""
-        from django.conf import settings
-        file_metadata = get_object_or_404(FileMetadata, pk=pk)
-        file_path = os.path.join(settings.MEDIA_ROOT, file_metadata.file_path)
-        
-        if not os.path.exists(file_path):
-            return Response(
-                {'error': 'File not found on disk'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        file = open(file_path, 'rb')
-        response = FileResponse(file, content_type=file_metadata.mime_type)
-        response['Content-Disposition'] = f'attachment; filename="{file_metadata.name}"'
-        return response
-    
+        file_metadata = self.get_object()  # scoped to the caller
+        if not default_storage.exists(file_metadata.file_path):
+            return Response({'error': 'File not found on disk'}, status=status.HTTP_404_NOT_FOUND)
+        return FileResponse(
+            default_storage.open(file_metadata.file_path, 'rb'),
+            as_attachment=True,
+            filename=file_metadata.name,
+            content_type=file_metadata.mime_type or 'application/octet-stream',
+        )
+
     @action(detail=False, methods=['get'])
     def stats(self, request):
-        """Get statistics about stored files"""
-        total_files = FileMetadata.objects.count()
-        total_size = sum(f.file_size for f in FileMetadata.objects.all())
-        duplicate_files = FileMetadata.objects.filter(upload_count__gt=1).count()
-        unique_files = FileMetadata.objects.count()
-        space_saved = sum(
-            (f.upload_count - 1) * f.file_size 
-            for f in FileMetadata.objects.filter(upload_count__gt=1)
-        )
-        
-        return Response({
-            'total_files': total_files,
-            'unique_files': unique_files,
-            'duplicate_entries': duplicate_files,
-            'total_size_bytes': total_size,
-            'total_size_mb': round(total_size / (1024 * 1024), 2),
-            'space_saved_bytes': space_saved,
-            'space_saved_mb': round(space_saved / (1024 * 1024), 2),
-        })
+        return Response(services.get_storage_stats(request.user.user_id))
 
+    @action(detail=False, methods=['get'])
+    def storage_stats(self, request):
+        return Response(services.get_storage_stats(request.user.user_id))
+
+    @action(detail=False, methods=['get'])
+    def file_types(self, request):
+        mime_types = (
+            FileMetadata.objects.filter(user_id=request.user.user_id)
+            .order_by('mime_type')
+            .values_list('mime_type', flat=True)
+            .distinct()
+        )
+        return Response(list(mime_types))

@@ -13,10 +13,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-dev-key-change-in-production'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-dev-key-change-in-production')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = ['*']
 
@@ -149,9 +149,53 @@ else:
     if not CORS_ALLOWED_ORIGINS and FRONTEND_URL:
         CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
 
+# The browser must be allowed to send the UserId header and read Retry-After.
+from corsheaders.defaults import default_headers  # noqa: E402
+
+CORS_ALLOW_HEADERS = (*default_headers, 'userid')
+CORS_EXPOSE_HEADERS = ['Retry-After']
+
 # REST Framework settings
 REST_FRAMEWORK = {
+    # Callers identify themselves with a `UserId` header; requests without one get 401.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'files.authentication.UserIdHeaderAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    # Per-user API call limit (see RATE_LIMIT_* below).
+    'DEFAULT_THROTTLE_CLASSES': [
+        'files.throttling.UserCallRateThrottle',
+    ],
+    'EXCEPTION_HANDLER': 'files.exceptions.api_exception_handler',
+    'UNAUTHENTICATED_USER': None,
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 50
+    'PAGE_SIZE': 50,
+}
+
+# The rate limiter keeps its counters in the cache. LocMem is per process, which is
+# right for a single server process; with several workers/hosts use Redis instead.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'file-vault',
+    }
+}
+
+# --- File Vault limits (override with environment variables) ---
+# API calls allowed per user per window. Default: 2 calls per second.
+RATE_LIMIT_CALLS = int(os.environ.get('RATE_LIMIT_CALLS', '2'))
+RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('RATE_LIMIT_WINDOW_SECONDS', '1'))
+# Physical storage allowed per user, in bytes. Default: 10 MB. Duplicates don't count.
+USER_STORAGE_LIMIT_BYTES = int(os.environ.get('USER_STORAGE_LIMIT_BYTES', str(10 * 1024 * 1024)))
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'console': {'class': 'logging.StreamHandler'}},
+    'loggers': {
+        'files': {'handlers': ['console'], 'level': os.environ.get('FILES_LOG_LEVEL', 'INFO')},
+    },
 }
 
