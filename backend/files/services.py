@@ -31,7 +31,7 @@ def get_storage_used(user_id):
     """Bytes physically stored for a user. Only originals count; references are free."""
     return (
         FileMetadata.objects.filter(user_id=user_id, is_reference=False)
-        .aggregate(total=Sum('file_size', default=0))['total']
+        .aggregate(total=Sum('size', default=0))['total']
     )
 
 
@@ -49,7 +49,7 @@ def save_file_with_deduplication(uploaded_file, user_id):
     Store an upload for `user_id`, deduplicating against that user's files.
 
     Returns (FileMetadata, is_duplicate). A duplicate gets its own row (keeping
-    its own name and upload time) that references the original's blob.
+    its own filename and upload time) that references the original's blob.
     Raises StorageQuotaExceeded if new content would exceed the user's quota.
     """
     file_hash = FileMetadata.calculate_file_hash(uploaded_file)
@@ -65,10 +65,10 @@ def save_file_with_deduplication(uploaded_file, user_id):
 def _save(uploaded_file, user_id, file_hash):
     common = {
         'user_id': user_id,
-        'name': uploaded_file.name[:255],
+        'original_filename': uploaded_file.name[:255],
         'file_hash': file_hash,
-        'file_size': uploaded_file.size,
-        'mime_type': (uploaded_file.content_type or DEFAULT_MIME_TYPE)[:100],
+        'size': uploaded_file.size,
+        'file_type': (uploaded_file.content_type or DEFAULT_MIME_TYPE)[:100],
     }
 
     with transaction.atomic():
@@ -78,8 +78,8 @@ def _save(uploaded_file, user_id, file_hash):
             .first()
         )
         if original is not None:
-            FileMetadata.objects.filter(pk=original.pk).update(upload_count=F('upload_count') + 1)
-            original.refresh_from_db(fields=['upload_count'])
+            FileMetadata.objects.filter(pk=original.pk).update(reference_count=F('reference_count') + 1)
+            original.refresh_from_db(fields=['reference_count'])
             reference = FileMetadata.objects.create(
                 file_path=original.file_path,
                 is_reference=True,
@@ -119,7 +119,7 @@ def delete_file(file_metadata):
 
     if file_metadata.is_reference:
         FileMetadata.objects.filter(pk=file_metadata.original_file_id).update(
-            upload_count=F('upload_count') - 1
+            reference_count=F('reference_count') - 1
         )
         file_metadata.delete()
         return
@@ -142,7 +142,7 @@ def delete_file(file_metadata):
     # Nothing points at the old original now, so PROTECT allows the delete. It must
     # happen before the heir becomes an original (one original per user + hash).
     file_metadata.delete()
-    FileMetadata.objects.filter(pk=heir.pk).update(is_reference=False, upload_count=len(references))
+    FileMetadata.objects.filter(pk=heir.pk).update(is_reference=False, reference_count=len(references))
 
 
 def get_storage_stats(user_id):
@@ -150,8 +150,8 @@ def get_storage_stats(user_id):
     stats = FileMetadata.objects.filter(user_id=user_id).aggregate(
         total_files=Count('id'),
         unique_files=Count('id', filter=Q(is_reference=False)),
-        original_storage_used=Sum('file_size', default=0),
-        total_storage_used=Sum('file_size', filter=Q(is_reference=False), default=0),
+        original_storage_used=Sum('size', default=0),
+        total_storage_used=Sum('size', filter=Q(is_reference=False), default=0),
     )
     logical = stats['original_storage_used']
     physical = stats['total_storage_used']

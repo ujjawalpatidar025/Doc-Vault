@@ -10,11 +10,11 @@ import { Separator } from "@/components/ui/separator"
 
 export const EMPTY_FILTERS = {
   search: "",
-  mime_type: "",
+  file_type: "",
   min_size_kb: "",
   max_size_kb: "",
-  date_from: "",
-  date_to: "",
+  start_date: "",
+  end_date: "",
   duplicates_only: false,
   ordering: "-uploaded_at",
 }
@@ -22,10 +22,10 @@ export const EMPTY_FILTERS = {
 const SORT_OPTIONS = [
   ["-uploaded_at", "Newest first"],
   ["uploaded_at", "Oldest first"],
-  ["name", "Name (A–Z)"],
-  ["-name", "Name (Z–A)"],
-  ["-file_size", "Largest first"],
-  ["file_size", "Smallest first"],
+  ["original_filename", "Name (A–Z)"],
+  ["-original_filename", "Name (Z–A)"],
+  ["-size", "Largest first"],
+  ["size", "Smallest first"],
 ]
 
 function Field({ id, label, children }) {
@@ -79,8 +79,8 @@ export default function FileFilters({ filters, onChange }) {
           <Input
             id="filter-type"
             placeholder="e.g. image or application/pdf"
-            value={filters.mime_type}
-            onChange={set("mime_type")}
+            value={filters.file_type}
+            onChange={set("file_type")}
           />
         </Field>
 
@@ -95,10 +95,10 @@ export default function FileFilters({ filters, onChange }) {
 
         <div className="grid grid-cols-2 gap-3">
           <Field id="filter-from" label="Uploaded from">
-            <Input id="filter-from" type="date" value={filters.date_from} onChange={set("date_from")} />
+            <Input id="filter-from" type="date" value={filters.start_date} onChange={set("start_date")} />
           </Field>
           <Field id="filter-to" label="Uploaded to">
-            <Input id="filter-to" type="date" value={filters.date_to} onChange={set("date_to")} />
+            <Input id="filter-to" type="date" value={filters.end_date} onChange={set("end_date")} />
           </Field>
         </div>
 

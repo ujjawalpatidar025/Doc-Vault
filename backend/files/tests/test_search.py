@@ -31,7 +31,7 @@ class SearchAndFilterTests(FileVaultTestCase):
         self.upload(b'secret', name='report-of-bob.pdf', user='bob', content_type='application/pdf')
 
     def names(self, response):
-        return [f['name'] for f in self.results(response)]
+        return [f['original_filename'] for f in self.results(response)]
 
     def test_lists_only_own_files_newest_first(self):
         self.assertEqual(
@@ -45,17 +45,17 @@ class SearchAndFilterTests(FileVaultTestCase):
             ['Quarterly Report.pdf', 'report-draft.docx'],
         )
 
-    def test_filter_by_exact_mime_type(self):
-        self.assertEqual(self.names(self.get(mime_type='image/png')), ['holiday-photo.png'])
+    def test_filter_by_exact_file_type(self):
+        self.assertEqual(self.names(self.get(file_type='image/png')), ['holiday-photo.png'])
 
-    def test_filter_by_several_mime_types_and_alias(self):
+    def test_filter_by_several_file_types(self):
         self.assertEqual(
             sorted(self.names(self.get(file_type='image/png,application/pdf'))),
             ['Quarterly Report.pdf', 'holiday-photo.png'],
         )
 
     def test_filter_by_mime_category(self):
-        self.assertEqual(sorted(self.names(self.get(mime_type='image'))), ['holiday-photo.png', 'logo.jpg'])
+        self.assertEqual(sorted(self.names(self.get(file_type='image'))), ['holiday-photo.png', 'logo.jpg'])
 
     def test_filter_by_size_range_inclusive(self):
         self.assertEqual(
@@ -63,14 +63,27 @@ class SearchAndFilterTests(FileVaultTestCase):
             ['Quarterly Report.pdf', 'logo.jpg'],
         )
 
-    def test_date_to_includes_the_whole_day(self):
+    def test_bare_end_date_includes_the_whole_day(self):
         # report-draft was uploaded at 23:00 on 2025-03-20.
         self.assertEqual(
-            sorted(self.names(self.get(date_from='2025-02-01', date_to='2025-03-20'))),
+            sorted(self.names(self.get(start_date='2025-02-01', end_date='2025-03-20'))),
             ['holiday-photo.png', 'report-draft.docx'],
         )
 
-    def test_date_aliases_and_datetimes(self):
+    def test_iso8601_datetimes_with_timezone(self):
+        # The contract specifies ISO 8601 with timezone, e.g. ...Z or ...+05:30.
+        self.assertEqual(
+            sorted(self.names(self.get(start_date='2025-02-15T00:00:00Z', end_date='2025-03-20T23:30:00+00:00'))),
+            ['holiday-photo.png', 'report-draft.docx'],
+        )
+        # 2025-04-01T17:00+05:30 is 11:30 UTC, just before logo.jpg's 12:00 UTC upload.
+        self.assertEqual(self.names(self.get(start_date='2025-04-01T17:00:00+05:30')), ['logo.jpg'])
+
+    def test_old_parameter_names_still_work(self):
+        self.assertEqual(self.names(self.get(mime_type='image/png')), ['holiday-photo.png'])
+        self.assertEqual(self.names(self.get(date_from='2025-03-31')), ['logo.jpg'])
+
+    def test_datetime_without_timezone_uses_server_time_zone(self):
         self.assertEqual(self.names(self.get(start_date='2025-03-31T00:00:00')), ['logo.jpg'])
 
     def test_duplicates_only(self):
@@ -82,18 +95,18 @@ class SearchAndFilterTests(FileVaultTestCase):
 
     def test_blank_parameters_are_ignored(self):
         # The React filter form sends empty strings for unused fields.
-        response = self.get(search='', min_size='', mime_type='', date_from='', duplicates_only='false')
+        response = self.get(search='', min_size='', file_type='', start_date='', duplicates_only='false')
         self.assertEqual(len(self.names(response)), 4)
 
     def test_filters_combine(self):
         self.assertEqual(
-            self.names(self.get(search='report', mime_type='application/pdf', max_size=1000)),
+            self.names(self.get(search='report', file_type='application/pdf', max_size=1000)),
             ['Quarterly Report.pdf'],
         )
 
     def test_ordering(self):
         self.assertEqual(
-            self.names(self.get(ordering='file_size')),
+            self.names(self.get(ordering='size')),
             ['report-draft.docx', 'Quarterly Report.pdf', 'logo.jpg', 'holiday-photo.png'],
         )
 
@@ -101,11 +114,11 @@ class SearchAndFilterTests(FileVaultTestCase):
         for params in (
             {'min_size': 'abc'},
             {'min_size': -1},
-            {'date_from': 'yesterday'},
-            {'date_to': '2025-02-30'},
+            {'start_date': 'yesterday'},
+            {'end_date': '2025-02-30'},
             {'ordering': 'file_hash'},
             {'min_size': 500, 'max_size': 100},
-            {'date_from': '2025-05-01', 'date_to': '2025-01-01'},
+            {'start_date': '2025-05-01', 'end_date': '2025-01-01'},
         ):
             with self.subTest(params=params):
                 self.assertEqual(self.get(**params).status_code, status.HTTP_400_BAD_REQUEST)

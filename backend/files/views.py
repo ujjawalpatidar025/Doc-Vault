@@ -75,8 +75,8 @@ class FileMetadataViewSet(
         return FileResponse(
             default_storage.open(file_metadata.file_path, 'rb'),
             as_attachment=True,
-            filename=file_metadata.name,
-            content_type=file_metadata.mime_type or 'application/octet-stream',
+            filename=file_metadata.original_filename,
+            content_type=file_metadata.file_type or 'application/octet-stream',
         )
 
     @action(detail=False, methods=['get'])
@@ -89,10 +89,10 @@ class FileMetadataViewSet(
 
     @action(detail=False, methods=['get'])
     def file_types(self, request):
-        mime_types = (
+        file_types = (
             FileMetadata.objects.filter(user_id=request.user.user_id)
-            .order_by('mime_type')
-            .values_list('mime_type', flat=True)
+            .order_by('file_type')
+            .values_list('file_type', flat=True)
             .distinct()
         )
-        return Response(list(mime_types))
+        return Response(list(file_types))

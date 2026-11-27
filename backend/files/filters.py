@@ -3,15 +3,18 @@ Validated search & filtering for GET /api/files/.
 
 All parameters are optional and combine with AND:
 
-    search            case-insensitive substring of the file name
-    mime_type         "image/png" (exact), "image/png,image/jpeg" (any of), or a bare
-                      category like "image" (prefix match). Alias: file_type
+    search            case-insensitive partial match on the original filename
+    file_type         MIME type: "application/pdf" (exact), "image/png,image/jpeg" (any of),
+                      or a bare category like "image" (prefix match)
     min_size          minimum size in bytes, inclusive
     max_size          maximum size in bytes, inclusive
-    date_from         uploaded on/after: ISO date (YYYY-MM-DD) or datetime. Alias: start_date
-    date_to           uploaded on/before; a bare date includes that whole day. Alias: end_date
+    start_date        uploaded at/after: ISO 8601 datetime with timezone
+                      (e.g. 2025-01-31T10:00:00+05:30 or ...Z), or a bare date (YYYY-MM-DD)
+    end_date          uploaded at/before; a bare date includes that whole day
     duplicates_only   "true" to show only files whose content was uploaded more than once
-    ordering          uploaded_at | name | file_size | mime_type, prefix "-" for descending
+    ordering          uploaded_at | original_filename | size | file_type, "-" for descending
+
+Older names are still accepted as aliases: mime_type, date_from, date_to.
 
 Bad values return HTTP 400 with a message per field instead of crashing.
 """
@@ -22,9 +25,9 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import serializers
 
-ORDERING_FIELDS = ('uploaded_at', 'name', 'file_size', 'mime_type')
+ORDERING_FIELDS = ('uploaded_at', 'original_filename', 'size', 'file_type')
 DEFAULT_ORDERING = '-uploaded_at'
-PARAM_ALIASES = {'file_type': 'mime_type', 'start_date': 'date_from', 'end_date': 'date_to'}
+PARAM_ALIASES = {'mime_type': 'file_type', 'date_from': 'start_date', 'date_to': 'end_date'}
 
 
 class FlexibleDateTimeField(serializers.Field):
@@ -37,7 +40,7 @@ class FlexibleDateTimeField(serializers.Field):
     def to_internal_value(self, data):
         value = str(data).strip()
         # Try a bare date first: on Python 3.11+ parse_datetime also accepts
-        # "2025-03-20" (as midnight), which would make date_to exclude that day.
+        # "2025-03-20" (as midnight), which would make end_date exclude that day.
         try:
             parsed_date = parse_date(value)
         except ValueError:  # well-formed but impossible, e.g. 2025-02-30
@@ -61,11 +64,11 @@ class FlexibleDateTimeField(serializers.Field):
 
 class FileFilterSerializer(serializers.Serializer):
     search = serializers.CharField(required=False, allow_blank=True, max_length=255)
-    mime_type = serializers.CharField(required=False, allow_blank=True, max_length=1000)
+    file_type = serializers.CharField(required=False, allow_blank=True, max_length=1000)
     min_size = serializers.IntegerField(required=False, min_value=0)
     max_size = serializers.IntegerField(required=False, min_value=0)
-    date_from = FlexibleDateTimeField(required=False)
-    date_to = FlexibleDateTimeField(required=False)
+    start_date = FlexibleDateTimeField(required=False)
+    end_date = FlexibleDateTimeField(required=False)
     duplicates_only = serializers.BooleanField(required=False, default=False)
     ordering = serializers.ChoiceField(
         required=False,
@@ -76,9 +79,9 @@ class FileFilterSerializer(serializers.Serializer):
         min_size, max_size = attrs.get('min_size'), attrs.get('max_size')
         if min_size is not None and max_size is not None and min_size > max_size:
             raise serializers.ValidationError({'min_size': 'min_size cannot be greater than max_size.'})
-        date_from, date_to = attrs.get('date_from'), attrs.get('date_to')
-        if date_from and date_to and date_from[0] > date_to[0]:
-            raise serializers.ValidationError({'date_from': 'date_from cannot be after date_to.'})
+        start, end = attrs.get('start_date'), attrs.get('end_date')
+        if start and end and start[0] > end[0]:
+            raise serializers.ValidationError({'start_date': 'start_date cannot be after end_date.'})
         return attrs
 
 
@@ -99,33 +102,36 @@ def apply_filters(queryset, query_params):
 
     search = data.get('search', '').strip()
     if search:
-        queryset = queryset.filter(name__icontains=search)
+        queryset = queryset.filter(original_filename__icontains=search)
 
-    mime_types = [m.strip() for m in data.get('mime_type', '').split(',') if m.strip()]
-    if mime_types:
+    file_types = [t.strip() for t in data.get('file_type', '').split(',') if t.strip()]
+    if file_types:
         condition = Q()
-        for mime in mime_types:
-            # Full types use the (user_id, mime_type) index; a bare "image" matches image/*.
-            condition |= Q(mime_type=mime) if '/' in mime else Q(mime_type__istartswith=f'{mime}/')
+        for file_type in file_types:
+            # Full types use the (user_id, file_type) index; a bare "image" matches image/*.
+            condition |= (
+                Q(file_type=file_type) if '/' in file_type
+                else Q(file_type__istartswith=f'{file_type}/')
+            )
         queryset = queryset.filter(condition)
 
     if 'min_size' in data:
-        queryset = queryset.filter(file_size__gte=data['min_size'])
+        queryset = queryset.filter(size__gte=data['min_size'])
     if 'max_size' in data:
-        queryset = queryset.filter(file_size__lte=data['max_size'])
+        queryset = queryset.filter(size__lte=data['max_size'])
 
-    if 'date_from' in data:
-        queryset = queryset.filter(uploaded_at__gte=data['date_from'][0])
-    if 'date_to' in data:
-        date_to, date_only = data['date_to']
+    if 'start_date' in data:
+        queryset = queryset.filter(uploaded_at__gte=data['start_date'][0])
+    if 'end_date' in data:
+        end, date_only = data['end_date']
         if date_only:
-            queryset = queryset.filter(uploaded_at__lt=date_to + datetime.timedelta(days=1))
+            queryset = queryset.filter(uploaded_at__lt=end + datetime.timedelta(days=1))
         else:
-            queryset = queryset.filter(uploaded_at__lte=date_to)
+            queryset = queryset.filter(uploaded_at__lte=end)
 
     if data.get('duplicates_only'):
         # References, plus originals whose content has at least one reference.
-        queryset = queryset.filter(Q(is_reference=True) | Q(upload_count__gt=1))
+        queryset = queryset.filter(Q(is_reference=True) | Q(reference_count__gt=1))
 
     ordering = data.get('ordering', DEFAULT_ORDERING)
     # Tie-break on id so pages are stable when values are equal.

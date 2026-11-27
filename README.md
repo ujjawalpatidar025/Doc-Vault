@@ -82,7 +82,7 @@ docker-compose up --build
 ### 2. Search & filtering
 - Search by name (case-insensitive), file type, size range, upload date range, "duplicates only", plus sort order.
 - Query parameters are validated by a DRF serializer (`files/filters.py`), so bad input returns `400` with a per-field message instead of a `500`.
-- Composite indexes lead with `user_id`, since every query is scoped to one user: `(user_id, -uploaded_at)`, `(user_id, name)`, `(user_id, mime_type)`, `(user_id, file_size)`, `(user_id, is_reference)`.
+- Composite indexes lead with `user_id`, since every query is scoped to one user: `(user_id, -uploaded_at)`, `(user_id, original_filename)`, `(user_id, file_type)`, `(user_id, size)`, `(user_id, is_reference)`.
 - The file list uses a constant number of queries (`select_related` avoids N+1). Stats come from a single aggregate query.
 - `icontains` with a leading wildcard can't use a B-tree index. On PostgreSQL, add a `pg_trgm` GIN index on `name` for large datasets.
 
@@ -123,24 +123,77 @@ Every request must send a **`UserId` header** (e.g. `UserId: user1`). Users see 
 | Method & path | Description |
 |---|---|
 | `GET /api/files/` | List your files (paginated; filters below) |
-| `POST /api/files/` | Upload a file (multipart field `file`); response includes `is_duplicate` |
+| `POST /api/files/` | Upload a file (multipart field `file`); returns `201` with the file object plus `is_duplicate` |
 | `GET /api/files/{id}/` | File details |
 | `GET /api/files/{id}/download/` | Download a file |
 | `DELETE /api/files/{id}/` | Delete a file (shared copies handled safely) |
-| `GET /api/files/stats/` (alias `/storage_stats/`) | Your storage, savings and quota |
+| `GET /api/files/storage_stats/` (alias `/stats/`) | Your storage, savings and quota |
 | `GET /api/files/file_types/` | Distinct MIME types among your files |
 
 ### Query parameters for `GET /api/files/`
 
 All optional and combinable. Invalid values return `400` with a per-field message.
 
-- `search`: case-insensitive substring of the file name
-- `mime_type` (alias `file_type`): an exact type like `image/png`, a list like `image/png,application/pdf`, or a category like `image`
+- `search`: case-insensitive partial match on the filename
+- `file_type`: MIME type, e.g. `application/pdf`. Also accepts a list (`image/png,application/pdf`) or a category (`image`)
 - `min_size` / `max_size`: size range in bytes (inclusive)
-- `date_from` / `date_to` (aliases `start_date` / `end_date`): ISO date or datetime; a date-only `date_to` includes that whole day
+- `start_date` / `end_date`: ISO 8601 with timezone, e.g. `2025-01-31T10:00:00Z` or `2025-01-31T15:30:00+05:30` (URL-encode `+` as `%2B`). A bare date also works; a date-only `end_date` includes that whole day
 - `duplicates_only`: `true` to show only content uploaded more than once
-- `ordering`: `uploaded_at`, `name`, `file_size`, `mime_type`; prefix `-` for descending
+- `ordering`: `uploaded_at`, `original_filename`, `size`, `file_type`; prefix `-` for descending
 - `page`: page number (50 files per page)
+
+Older parameter names are still accepted: `mime_type`, `date_from`, `date_to`.
+
+Example:
+
+```bash
+curl -H "UserId: user1" "http://localhost:8000/api/files/?search=report&file_type=application/pdf&min_size=1000&start_date=2025-01-01T00:00:00Z"
+```
+
+### Response format
+
+`GET /api/files/` (200 OK):
+
+```json
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "file": "http://localhost:8000/api/files/1/download/",
+      "original_filename": "report.pdf",
+      "file_type": "application/pdf",
+      "size": 1048576,
+      "uploaded_at": "2025-01-31T10:00:00Z",
+      "user_id": "user1",
+      "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "reference_count": 2,
+      "is_reference": false,
+      "original_file": null
+    }
+  ]
+}
+```
+
+- `reference_count`: how many uploads share this content (the original included). A reference reports its original's count.
+- `is_reference` / `original_file`: whether this upload is a duplicate, and the ID of the upload it shares storage with.
+- `file`: download URL. Send the same `UserId` header to fetch it.
+
+`GET /api/files/storage_stats/` (200 OK):
+
+```json
+{
+  "user_id": "user1",
+  "total_storage_used": 1048576,
+  "original_storage_used": 2097152,
+  "storage_savings": 1048576,
+  "savings_percentage": 50.0
+}
+```
+
+It also returns `storage_limit`, `storage_remaining`, `total_files`, `unique_files` and `duplicate_entries`.
 
 ### Limits
 
@@ -167,7 +220,7 @@ To list which stored file belongs to which upload:
 
 ```bash
 cd backend
-python manage.py shell -c "from files.models import FileMetadata as F; [print(f.user_id, '|', f.name, '->', f.file_path, '(duplicate)' if f.is_reference else '') for f in F.objects.all()]"
+python manage.py shell -c "from files.models import FileMetadata as F; [print(f.user_id, '|', f.original_filename, '->', f.file_path, '(duplicate)' if f.is_reference else '') for f in F.objects.all()]"
 ```
 
 ---
@@ -181,7 +234,8 @@ python manage.py test files
 docker-compose run --rm backend python manage.py test files
 ```
 
-49 tests cover:
+52 tests cover:
+- the API contract (exact response fields and pagination shape)
 - deduplication, and deleting files that share stored content
 - search & filters, including invalid input
 - the rate limit (with a controllable clock)

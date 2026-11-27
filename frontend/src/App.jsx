@@ -20,11 +20,11 @@ function toQuery(filters, page) {
   const kb = (value) => (value === "" ? "" : Math.round(Number(value) * 1024))
   return {
     search: filters.search.trim(),
-    mime_type: filters.mime_type.trim(),
+    file_type: filters.file_type.trim(),
     min_size: kb(filters.min_size_kb),
     max_size: kb(filters.max_size_kb),
-    date_from: filters.date_from,
-    date_to: filters.date_to,
+    start_date: filters.start_date,
+    end_date: filters.end_date,
     duplicates_only: filters.duplicates_only,
     ordering: filters.ordering,
     page: page > 1 ? page : "",

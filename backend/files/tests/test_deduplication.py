@@ -16,13 +16,28 @@ class UploadDeduplicationTests(FileVaultTestCase):
         self.assertFalse(body['is_duplicate'])
         self.assertFalse(body['is_reference'])
         self.assertIsNone(body['original_file'])
-        self.assertEqual(body['upload_count'], 1)
+        self.assertEqual(body['reference_count'], 1)
         self.assertEqual(body['file_hash'], self.sha256(b'unique content'))
         self.assertEqual(body['user_id'], 'alice')
-        self.assertEqual(body['name'], 'report.pdf')
-        self.assertEqual(body['mime_type'], 'application/pdf')
-        self.assertEqual(body['file_size'], len(b'unique content'))
+        self.assertEqual(body['original_filename'], 'report.pdf')
+        self.assertEqual(body['file_type'], 'application/pdf')
+        self.assertEqual(body['size'], len(b'unique content'))
         self.assertEqual(len(self.stored_blobs()), 1)
+
+    def test_response_matches_api_contract(self):
+        body = self.upload(b'contract', name='doc.pdf', content_type='application/pdf').json()
+
+        contract_fields = {
+            'id', 'file', 'original_filename', 'file_type', 'size', 'uploaded_at',
+            'user_id', 'file_hash', 'reference_count', 'is_reference', 'original_file',
+        }
+        # Upload adds two informational keys on top of the contract's file object.
+        self.assertEqual(set(body) - {'is_duplicate', 'message'}, contract_fields)
+        self.assertTrue(body['file'].endswith(f"/api/files/{body['id']}/download/"))
+
+        listed = self.get().json()
+        self.assertEqual(set(listed), {'count', 'next', 'previous', 'results'})
+        self.assertEqual(set(listed['results'][0]), contract_fields)
 
     def test_duplicate_becomes_reference_and_writes_nothing_new(self):
         first = self.upload(b'same bytes', name='a.txt').json()
@@ -31,10 +46,10 @@ class UploadDeduplicationTests(FileVaultTestCase):
         self.assertTrue(second['is_duplicate'])
         self.assertTrue(second['is_reference'])
         self.assertEqual(second['original_file'], first['id'])
-        self.assertEqual(second['name'], 'copy-of-a.txt')  # keeps its own name
-        self.assertEqual(second['upload_count'], 2)
+        self.assertEqual(second['original_filename'], 'copy-of-a.txt')  # keeps its own name
+        self.assertEqual(second['reference_count'], 2)
         self.assertEqual(len(self.stored_blobs()), 1)
-        self.assertEqual(FileMetadata.objects.get(pk=first['id']).upload_count, 2)
+        self.assertEqual(FileMetadata.objects.get(pk=first['id']).reference_count, 2)
         # Both entries are listed for the user.
         self.assertEqual(len(self.results(self.get())), 2)
 
@@ -56,7 +71,7 @@ class UploadDeduplicationTests(FileVaultTestCase):
         self.assertNotIn('passwd', blob)
 
     def test_database_rejects_two_originals_for_same_user_and_content(self):
-        fields = dict(user_id='alice', file_path='uploads/a', name='a', file_size=1, file_hash='h' * 64)
+        fields = dict(user_id='alice', file_path='uploads/a', original_filename='a', size=1, file_hash='h' * 64)
         FileMetadata.objects.create(**fields)
         with self.assertRaises(IntegrityError), transaction.atomic():
             FileMetadata.objects.create(**fields)
@@ -102,7 +117,7 @@ class DeleteTests(FileVaultTestCase):
 
         self.assertEqual(self.delete(reference['id']).status_code, status.HTTP_204_NO_CONTENT)
 
-        self.assertEqual(FileMetadata.objects.get(pk=original['id']).upload_count, 1)
+        self.assertEqual(FileMetadata.objects.get(pk=original['id']).reference_count, 1)
         self.assertEqual(len(self.stored_blobs()), 1)
 
     def test_deleting_original_promotes_oldest_reference(self):
@@ -115,7 +130,7 @@ class DeleteTests(FileVaultTestCase):
         promoted = FileMetadata.objects.get(pk=heir['id'])
         self.assertFalse(promoted.is_reference)
         self.assertIsNone(promoted.original_file_id)
-        self.assertEqual(promoted.upload_count, 2)
+        self.assertEqual(promoted.reference_count, 2)
         self.assertEqual(FileMetadata.objects.get(pk=other['id']).original_file_id, promoted.pk)
         self.assertEqual(len(self.stored_blobs()), 1)
         # Remaining copies still download.

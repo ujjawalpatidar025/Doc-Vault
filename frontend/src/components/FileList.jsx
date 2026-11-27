@@ -34,10 +34,10 @@ function deleteExplanation(file) {
   if (file.is_reference) {
     return "This removes only this copy. The other copies of the same content stay available."
   }
-  if (file.upload_count > 1) {
+  if (file.reference_count > 1) {
     return "Other copies of this content keep working: the oldest one takes over the stored data."
   }
-  return `This permanently deletes the file and frees ${formatBytes(file.file_size)} of your storage.`
+  return `This permanently deletes the file and frees ${formatBytes(file.size)} of your storage.`
 }
 
 function DuplicateBadge({ file }) {
@@ -49,11 +49,11 @@ function DuplicateBadge({ file }) {
       </Badge>
     )
   }
-  if (file.upload_count > 1) {
+  if (file.reference_count > 1) {
     return (
       <Badge variant="secondary" title="Copies of this content (stored once)">
         <Files />
-        {file.upload_count}
+        {file.reference_count}
         <span className="hidden sm:inline">copies</span>
       </Badge>
     )
@@ -68,7 +68,7 @@ function DeleteButton({ file, onDeleted }) {
     setDeleting(true)
     try {
       await deleteFile(file.id)
-      toast.success(`${file.name} deleted`)
+      toast.success(`${file.original_filename} deleted`)
       onDeleted()
     } catch (error) {
       toast.error("Couldn't delete the file", { description: getErrorMessage(error, "Please try again.") })
@@ -85,14 +85,14 @@ function DeleteButton({ file, onDeleted }) {
           size="icon"
           className="text-muted-foreground hover:text-destructive size-8"
           disabled={deleting}
-          aria-label={`Delete ${file.name}`}
+          aria-label={`Delete ${file.original_filename}`}
         >
           <Trash2 />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete “{file.name}”?</AlertDialogTitle>
+          <AlertDialogTitle>Delete “{file.original_filename}”?</AlertDialogTitle>
           <AlertDialogDescription>{deleteExplanation(file)}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -124,7 +124,7 @@ export default function FileList({ data, loading, page, onPageChange, onRefresh,
 
   const handleDownload = async (file) => {
     try {
-      await downloadFile(file.id, file.name)
+      await downloadFile(file.id, file.original_filename)
     } catch (error) {
       toast.error("Download failed", { description: getErrorMessage(error, "Please try again.") })
     }
@@ -180,16 +180,16 @@ export default function FileList({ data, loading, page, onPageChange, onRefresh,
                     <TableCell className="pl-4 sm:pl-6">
                       <div className="flex items-center gap-2">
                         <FileText className="text-muted-foreground size-4 shrink-0" />
-                        <span className="max-w-[7rem] truncate font-medium sm:max-w-[16rem]" title={file.name}>
-                          {file.name}
+                        <span className="max-w-[7rem] truncate font-medium sm:max-w-[16rem]" title={file.original_filename}>
+                          {file.original_filename}
                         </span>
                         <DuplicateBadge file={file} />
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-[10rem] truncate font-mono text-xs md:table-cell" title={file.mime_type}>
-                      {file.mime_type || "unknown"}
+                    <TableCell className="text-muted-foreground hidden max-w-[10rem] truncate font-mono text-xs md:table-cell" title={file.file_type}>
+                      {file.file_type || "unknown"}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{formatBytes(file.file_size)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatBytes(file.size)}</TableCell>
                     <TableCell className="text-muted-foreground hidden lg:table-cell">{formatDate(file.uploaded_at)}</TableCell>
                     <TableCell className="pr-4 sm:pr-6">
                       <div className="flex justify-end gap-1">
@@ -198,7 +198,7 @@ export default function FileList({ data, loading, page, onPageChange, onRefresh,
                           size="icon"
                           className="text-muted-foreground size-8"
                           onClick={() => handleDownload(file)}
-                          aria-label={`Download ${file.name}`}
+                          aria-label={`Download ${file.original_filename}`}
                         >
                           <Download />
                         </Button>
